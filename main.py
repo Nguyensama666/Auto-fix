@@ -19,7 +19,7 @@ if GEMINI_KEY:
 def fix_script():
     try:
         data = request.json or {}
-        file_path = data.get('file_path', 'Config-kaitunMM') # Mặc định file Config nếu trống
+        file_path = data.get('file_path', 'Kaitun-autoMM') # Đã đổi mặc định thành Kaitun-autoMM
         error_log = data.get('error_log')
         current_code = data.get('current_code')
 
