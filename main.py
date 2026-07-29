@@ -1,23 +1,76 @@
 import os
 import re
+import requests
+from datetime import datetime, timezone, timedelta
 from flask import Flask, request, jsonify
 import google.generativeai as genai
 from github import Github
 
 app = Flask(__name__)
 
+# Lấy các biến môi trường từ Render
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
+DISCORD_WEBHOOK_URL = os.environ.get("AUTOFIX_WEBHOOK_URL") # Webhook báo lỗi
 REPO_NAME = "Nguyensama666/Tool"
 
 if GEMINI_KEY:
     genai.configure(api_key=GEMINI_KEY)
 
+# Hàm gửi Webhook Embed sang Discord khi sửa lỗi thành công
+def send_discord_autofix_webhook(file_path, error_log):
+    if not DISCORD_WEBHOOK_URL:
+        return
+    
+    try:
+        # Lấy giờ Việt Nam (UTC+7)
+        tz_vn = timezone(timedelta(hours=7))
+        time_str = datetime.now(tz_vn).strftime("%d/%m/%Y %H:%M:%S (VN)")
+
+        payload = {
+            "username": "Gemini Auto-Fix Doctor",
+            "avatar_url": "https://i.imgur.com/8N4X0ZT.png",
+            "embeds": [{
+                "title": "🛠️ HỆ THỐNG ĐÃ TỰ ĐỘNG SỬA LỖI SCRIPT!",
+                "description": "✨ **Gemini API đã phát hiện lỗi từ Roblox và tự động Push bản sửa lên GitHub!**",
+                "color": 0x00FFFF, # Màu xanh ngọc
+                "fields": [
+                    {
+                        "name": "📄 File Được Sửa",
+                        "value": f"```\n{file_path}\n```",
+                        "inline": True
+                    },
+                    {
+                        "name": "🎯 Repository",
+                        "value": f"```\n{REPO_NAME}\n```",
+                        "inline": True
+                    },
+                    {
+                        "name": "⚠️ Nội Dung Lỗi Gặp Phải",
+                        "value": f"```lua\n{str(error_log)[:1000]}\n```", # Giới hạn 1000 ký tự
+                        "inline": False
+                    },
+                    {
+                        "name": "🚀 Trạng Thái",
+                        "value": "✅ **Đã Commit đè code mới lên GitHub thành công!**\n*(Roblox sẽ tự load bản mới ở lần Hop Server/Rejoin tiếp theo)*",
+                        "inline": False
+                    }
+                ],
+                "footer": {
+                    "text": f"🤖 Auto-Fix System • {time_str}",
+                    "icon_url": "https://i.imgur.com/8N4X0ZT.png"
+                }
+            }]
+        }
+        requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=5)
+    except Exception as e:
+        print(f"⚠️ Lỗi gửi Webhook Discord: {e}")
+
 @app.route('/fix-script', methods=['POST'])
 def fix_script():
     try:
         data = request.json or {}
-        file_path = data.get('file_path', 'Kaitun-autoMM') # Mặc định sửa file Controller chính
+        file_path = data.get('file_path', 'Kaitun-autoMM')
         error_log = data.get('error_log')
         current_code = data.get('current_code')
 
@@ -57,9 +110,13 @@ def fix_script():
             sha=contents.sha
         )
 
+        # GỬI THÔNG BÁO VỀ DISCORD WEBHOOK
+        send_discord_autofix_webhook(file_path, error_log)
+
         return jsonify({"status": "success", "message": f"Đã tự động sửa file {file_path} thành công!"}), 200
 
     except Exception as e:
+        print(f"⚠️ Error: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/', methods=['GET'])
