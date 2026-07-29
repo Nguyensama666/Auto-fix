@@ -90,7 +90,7 @@ def generate_content_with_fallback(prompt):
 def fix_script():
     try:
         data = request.json or {}
-        file_path = data.get('file_path', 'Kaitun-autoMM')
+        file_path = data.get('Kaitun-autoMM')
         error_log = data.get('error_log')
         current_code = data.get('current_code')
 
