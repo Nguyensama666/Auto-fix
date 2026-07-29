@@ -3,7 +3,7 @@ import re
 import requests
 from datetime import datetime, timezone, timedelta
 from flask import Flask, request, jsonify
-import google.generativeai as genai
+from google import genai
 from github import Github
 
 app = Flask(__name__)
@@ -13,8 +13,8 @@ GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 DISCORD_WEBHOOK_URL = os.environ.get("AUTOFIX_WEBHOOK_URL")
 REPO_NAME = "Nguyensama666/Tool"
 
-if GEMINI_KEY:
-    genai.configure(api_key=GEMINI_KEY)
+# Khởi tạo SDK Google GenAI mới
+client = genai.Client(api_key=GEMINI_KEY) if GEMINI_KEY else None
 
 def send_discord_autofix_webhook(file_path, error_log):
     if not DISCORD_WEBHOOK_URL:
@@ -51,8 +51,8 @@ def fix_script():
         error_log = data.get('error_log')
         current_code = data.get('current_code')
 
-        if not error_log or not current_code:
-            return jsonify({"status": "error", "message": "Thiếu dữ liệu"}), 400
+        if not error_log or not current_code or not client:
+            return jsonify({"status": "error", "message": "Thiếu dữ liệu hoặc API Key chưa sẵn sàng"}), 400
 
         prompt = f"""
         Bạn là chuyên gia Luau / Roblox Scripting.
@@ -67,12 +67,14 @@ def fix_script():
         YÊU CẦU: Sửa lỗi (tương thích Blox Fruits update mới) và CHỈ TRẢ VỀ DUY NHẤT MÃ CODE LUA ĐÃ SỬA. NO MARKDOWN, NO CODEBLOCK.
         """
 
-        # Tên model chuẩn của Google AI Studio
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        response = model.generate_content(prompt)
+        # Sử dụng đúng tên Model Gemini 2.5 Flash từ Dashboard của bạn
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+        )
         fixed_code = response.text.strip()
 
-        # Xóa khối markdown ```lua nếu AI vô tình trả về
+        # Dọn dẹp ký tự markdown ```lua ... ```
         fixed_code = re.sub(r'^```(?:lua)?\n', '', fixed_code, flags=re.IGNORECASE)
         fixed_code = re.sub(r'\n```$', '', fixed_code).strip()
 
