@@ -15,7 +15,24 @@ REPO_NAME = "Nguyensama666/Tool"
 
 client = genai.Client(api_key=GEMINI_KEY) if GEMINI_KEY else None
 
-def send_discord_autofix_webhook(file_path, error_log):
+# Danh sách model theo thứ tự ưu tiên (mới nhất -> cũ nhất còn hoạt động).
+# LƯU Ý: Google hiện có tình trạng model vẫn xuất hiện trong models.list()
+# nhưng khi gọi generate_content() thì trả về lỗi 404
+# "This model ... is no longer available to new users." đối với các API key mới tạo.
+# Vì vậy KHÔNG thể tin tưởng hoàn toàn vào models.list() để chọn model,
+# mà phải thử gọi thật (generate_content) và tự động rớt xuống model kế tiếp nếu lỗi.
+MODEL_FALLBACK_CHAIN = [
+    "gemini-3.6-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-3.1-flash",
+    "gemini-3.1-flash-lite",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-flash-latest",
+]
+
+
+def send_discord_autofix_webhook(file_path, error_log, model_used=None):
     if not DISCORD_WEBHOOK_URL:
         return
     try:
@@ -31,6 +48,7 @@ def send_discord_autofix_webhook(file_path, error_log):
                 "color": 0x00FFFF,
                 "fields": [
                     {"name": "📄 File Được Sửa", "value": f"```\n{file_path}\n```", "inline": True},
+                    {"name": "🤖 Model Sử Dụng", "value": f"```\n{model_used or 'unknown'}\n```", "inline": True},
                     {"name": "🎯 Repository", "value": f"```\n{REPO_NAME}\n```", "inline": True},
                     {"name": "⚠️ Nội Dung Lỗi Gặp Phải", "value": f"```lua\n{str(error_log)[:1000]}\n```", "inline": False},
                     {"name": "🚀 Trạng Thái", "value": "✅ **Đã Commit đè code mới lên GitHub thành công!**", "inline": False}
@@ -42,24 +60,31 @@ def send_discord_autofix_webhook(file_path, error_log):
     except Exception as e:
         print(f"⚠️ Lỗi gửi Webhook Discord: {e}")
 
-# Hàm tự động lấy tên model sống chuẩn nhất từ Google API
-def get_working_model():
-    # Danh sách các tên model ưu tiên
-    preferred = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-flash"]
-    try:
-        # Lấy danh sách model thực tế mà API Key của bạn có quyền truy cập
-        available = [m.name.replace("models/", "") for m in client.models.list()]
-        for p in preferred:
-            if p in available:
-                return p
-        # Nếu không trúng danh sách ưu tiên, chọn model flash đầu tiên tìm thấy
-        for a in available:
-            if "flash" in a and "image" not in a and "tts" not in a:
-                return a
-        return available[0] if available else "gemini-2.5-flash"
-    except Exception as e:
-        print(f"⚠️ Lỗi lấy danh sách model: {e}")
-        return "gemini-2.5-flash"
+
+def generate_content_with_fallback(prompt):
+    """
+    Thử lần lượt từng model trong MODEL_FALLBACK_CHAIN bằng cách GỌI THẬT
+    generate_content (không chỉ dựa vào models.list()), model nào lỗi
+    (404 deprecated, quota, v.v...) thì tự động chuyển sang model kế tiếp.
+    Trả về (response, tên_model_dùng_thành_công).
+    """
+    last_error = None
+    for model_name in MODEL_FALLBACK_CHAIN:
+        try:
+            print(f"🤖 Đang thử Model: {model_name}")
+            response = client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+            )
+            print(f"✅ Model hoạt động: {model_name}")
+            return response, model_name
+        except Exception as e:
+            print(f"⚠️ Model '{model_name}' lỗi, thử model kế tiếp: {e}")
+            last_error = e
+            continue
+
+    raise last_error if last_error else Exception("Không tìm được model Gemini nào hoạt động")
+
 
 @app.route('/fix-script', methods=['POST'])
 def fix_script():
@@ -85,13 +110,8 @@ def fix_script():
         YÊU CẦU: Sửa lỗi (tương thích Blox Fruits update mới) và CHỈ TRẢ VỀ DUY NHẤT MÃ CODE LUA ĐÃ SỬA. NO MARKDOWN, NO CODEBLOCK.
         """
 
-        target_model = get_working_model()
-        print(f"🤖 Đang sử dụng Model: {target_model}")
-
-        response = client.models.generate_content(
-            model=target_model,
-            contents=prompt,
-        )
+        response, target_model = generate_content_with_fallback(prompt)
+        print(f"🤖 Đã sử dụng Model: {target_model}")
 
         fixed_code = response.text.strip()
 
@@ -105,22 +125,28 @@ def fix_script():
 
         repo.update_file(
             path=contents.path,
-            message=f"🤖 Auto-Fix bởi Gemini: {str(error_log)[:30]}...",
+            message=f"🤖 Auto-Fix bởi Gemini ({target_model}): {str(error_log)[:30]}...",
             content=fixed_code,
             sha=contents.sha
         )
 
-        send_discord_autofix_webhook(file_path, error_log)
+        send_discord_autofix_webhook(file_path, error_log, target_model)
 
-        return jsonify({"status": "success", "message": f"Đã tự động sửa file {file_path} thành công!"}), 200
+        return jsonify({
+            "status": "success",
+            "message": f"Đã tự động sửa file {file_path} thành công!",
+            "model_used": target_model
+        }), 200
 
     except Exception as e:
         print(f"⚠️ Server Error: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
+
 @app.route('/', methods=['GET'])
 def home():
     return "Server Auto-Fix Gemini đang hoạt động 24/7!", 200
+
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
