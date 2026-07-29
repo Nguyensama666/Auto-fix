@@ -15,18 +15,10 @@ REPO_NAME = "Nguyensama666/Tool"
 
 client = genai.Client(api_key=GEMINI_KEY) if GEMINI_KEY else None
 
-# Danh sách model theo thứ tự ưu tiên (mới nhất -> cũ nhất còn hoạt động).
-# LƯU Ý: Google hiện có tình trạng model vẫn xuất hiện trong models.list()
-# nhưng khi gọi generate_content() thì trả về lỗi 404
-# "This model ... is no longer available to new users." đối với các API key mới tạo.
-# Vì vậy KHÔNG thể tin tưởng hoàn toàn vào models.list() để chọn model,
-# mà phải thử gọi thật (generate_content) và tự động rớt xuống model kế tiếp nếu lỗi.
 MODEL_FALLBACK_CHAIN = [
-    "gemini-3.6-flash",
-    "gemini-3.5-flash-lite",
-    "gemini-3.1-flash",
-    "gemini-3.1-flash-lite",
     "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
     "gemini-2.5-flash-lite",
     "gemini-flash-latest",
 ]
@@ -62,12 +54,6 @@ def send_discord_autofix_webhook(file_path, error_log, model_used=None):
 
 
 def generate_content_with_fallback(prompt):
-    """
-    Thử lần lượt từng model trong MODEL_FALLBACK_CHAIN bằng cách GỌI THẬT
-    generate_content (không chỉ dựa vào models.list()), model nào lỗi
-    (404 deprecated, quota, v.v...) thì tự động chuyển sang model kế tiếp.
-    Trả về (response, tên_model_dùng_thành_công).
-    """
     last_error = None
     for model_name in MODEL_FALLBACK_CHAIN:
         try:
@@ -90,7 +76,10 @@ def generate_content_with_fallback(prompt):
 def fix_script():
     try:
         data = request.json or {}
-        file_path = data.get('Kaitun-autoMM')
+        
+        # FIX CỰC KỲ QUAN TRỌNG: Lấy đúng key 'file_path', nếu nil thì mới lấy mặc định 'Kaitun-autoMM'
+        file_path = data.get('file_path') or 'Kaitun-autoMM'
+        
         error_log = data.get('error_log')
         current_code = data.get('current_code')
 
