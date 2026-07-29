@@ -13,7 +13,7 @@ GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 DISCORD_WEBHOOK_URL = os.environ.get("AUTOFIX_WEBHOOK_URL")
 REPO_NAME = "Nguyensama666/Tool"
 
-# Khởi tạo SDK Google GenAI mới
+# Khởi tạo SDK Google GenAI
 client = genai.Client(api_key=GEMINI_KEY) if GEMINI_KEY else None
 
 def send_discord_autofix_webhook(file_path, error_log):
@@ -67,14 +67,14 @@ def fix_script():
         YÊU CẦU: Sửa lỗi (tương thích Blox Fruits update mới) và CHỈ TRẢ VỀ DUY NHẤT MÃ CODE LUA ĐÃ SỬA. NO MARKDOWN, NO CODEBLOCK.
         """
 
-        # Sử dụng đúng tên Model Gemini 2.5 Flash từ Dashboard của bạn
+        # Đổi sang model thế hệ mới Gemini 3 Flash
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-3-flash',
             contents=prompt,
         )
         fixed_code = response.text.strip()
 
-        # Dọn dẹp ký tự markdown ```lua ... ```
+        # Dọn dẹp ký tự markdown
         fixed_code = re.sub(r'^```(?:lua)?\n', '', fixed_code, flags=re.IGNORECASE)
         fixed_code = re.sub(r'\n```$', '', fixed_code).strip()
 
