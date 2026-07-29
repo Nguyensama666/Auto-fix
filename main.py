@@ -3,7 +3,7 @@ import re
 import requests
 from datetime import datetime, timezone, timedelta
 from flask import Flask, request, jsonify
-import google.generativeai as genai
+from google import genai
 from github import Github
 
 app = Flask(__name__)
@@ -13,8 +13,8 @@ GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 DISCORD_WEBHOOK_URL = os.environ.get("AUTOFIX_WEBHOOK_URL")
 REPO_NAME = "Nguyensama666/Tool"
 
-if GEMINI_KEY:
-    genai.configure(api_key=GEMINI_KEY)
+# Khởi tạo Client Gemini SDK mới
+client = genai.Client(api_key=GEMINI_KEY) if GEMINI_KEY else None
 
 def send_discord_autofix_webhook(file_path, error_log):
     if not DISCORD_WEBHOOK_URL:
@@ -31,31 +31,12 @@ def send_discord_autofix_webhook(file_path, error_log):
                 "description": "✨ **Gemini API đã phát hiện lỗi từ Roblox và tự động Push bản sửa lên GitHub!**",
                 "color": 0x00FFFF,
                 "fields": [
-                    {
-                        "name": "📄 File Được Sửa",
-                        "value": f"```\n{file_path}\n```",
-                        "inline": True
-                    },
-                    {
-                        "name": "🎯 Repository",
-                        "value": f"```\n{REPO_NAME}\n```",
-                        "inline": True
-                    },
-                    {
-                        "name": "⚠️ Nội Dung LỖI Gặp Phải",
-                        "value": f"```lua\n{str(error_log)[:1000]}\n```",
-                        "inline": False
-                    },
-                    {
-                        "name": "🚀 Trạng Thái",
-                        "value": "✅ **Đã Commit đè code mới lên GitHub thành công!**",
-                        "inline": False
-                    }
+                    {"name": "📄 File Được Sửa", "value": f"```\n{file_path}\n```", "inline": True},
+                    {"name": "🎯 Repository", "value": f"```\n{REPO_NAME}\n```", "inline": True},
+                    {"name": "⚠️ Nội Dung Lỗi Gặp Phải", "value": f"```lua\n{str(error_log)[:1000]}\n```", "inline": False},
+                    {"name": "🚀 Trạng Thái", "value": "✅ **Đã Commit đè code mới lên GitHub thành công!**", "inline": False}
                 ],
-                "footer": {
-                    "text": f"🤖 Auto-Fix System • {time_str}",
-                    "icon_url": "https://i.imgur.com/8N4X0ZT.png"
-                }
+                "footer": {"text": f"🤖 Auto-Fix System • {time_str}", "icon_url": "https://i.imgur.com/8N4X0ZT.png"}
             }]
         }
         requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=5)
@@ -70,12 +51,12 @@ def fix_script():
         error_log = data.get('error_log')
         current_code = data.get('current_code')
 
-        if not error_log or not current_code:
-            return jsonify({"status": "error", "message": "Thiếu dữ liệu"}), 400
+        if not error_log or not current_code or not client:
+            return jsonify({"status": "error", "message": "Thiếu dữ liệu hoặc API Key"}), 400
 
         prompt = f"""
         Bạn là chuyên gia Luau / Roblox Scripting.
-        Script Roblox sau bị lỗi runtime khi chạy:
+        Script Roblox sau bị lỗi runtime:
 
         --- LỖI ---
         {error_log}
@@ -83,17 +64,14 @@ def fix_script():
         --- CODE HIỆN TẠI ---
         {current_code}
 
-        YÊU CẦU: Sửa lỗi (tương thích Blox Fruits update mới) và CHỈ TRẢ VỀ DUY NHẤT MÃ CODE LUA ĐÃ SỬA. NO MARKDOWN, NO CODEBLOCK.
+        YÊU CẦU: Sửa lỗi và CHỈ TRẢ VỀ DUY NHẤT MÃ CODE LUA ĐÃ SỬA. NO MARKDOWN, NO CODEBLOCK.
         """
 
-        # Thử khởi tạo model linh hoạt tránh lỗi 404
-        try:
-            model = genai.GenerativeModel('gemini-2.5-flash')
-            response = model.generate_content(prompt)
-        except Exception:
-            model = genai.GenerativeModel('gemini-1.5-flash-latest')
-            response = model.generate_content(prompt)
-
+        # Gọi Gemini SDK v2026 mới nhất
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+        )
         fixed_code = response.text.strip()
 
         fixed_code = re.sub(r'^```(?:lua)?\n', '', fixed_code, flags=re.IGNORECASE)
