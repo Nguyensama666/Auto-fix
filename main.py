@@ -3,8 +3,20 @@ import re
 import requests
 from datetime import datetime, timezone, timedelta
 from flask import Flask, request, jsonify
-from google import genai
 from github import Github
+
+# Bọc import an toàn cho SDK Gemini
+try:
+    import google.generativeai as genai
+    HAS_OLD_SDK = True
+except ModuleNotFoundError:
+    HAS_OLD_SDK = False
+
+try:
+    from google import genai as genai_new
+    HAS_NEW_SDK = True
+except ModuleNotFoundError:
+    HAS_NEW_SDK = False
 
 app = Flask(__name__)
 
@@ -13,8 +25,12 @@ GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 DISCORD_WEBHOOK_URL = os.environ.get("AUTOFIX_WEBHOOK_URL")
 REPO_NAME = "Nguyensama666/Tool"
 
-# Khởi tạo Client Gemini SDK mới
-client = genai.Client(api_key=GEMINI_KEY) if GEMINI_KEY else None
+# Khởi tạo Gemini Client
+if GEMINI_KEY:
+    if HAS_OLD_SDK:
+        genai.configure(api_key=GEMINI_KEY)
+    elif HAS_NEW_SDK:
+        new_client = genai_new.Client(api_key=GEMINI_KEY)
 
 def send_discord_autofix_webhook(file_path, error_log):
     if not DISCORD_WEBHOOK_URL:
@@ -51,8 +67,8 @@ def fix_script():
         error_log = data.get('error_log')
         current_code = data.get('current_code')
 
-        if not error_log or not current_code or not client:
-            return jsonify({"status": "error", "message": "Thiếu dữ liệu hoặc API Key"}), 400
+        if not error_log or not current_code:
+            return jsonify({"status": "error", "message": "Thiếu dữ liệu error_log hoặc current_code"}), 400
 
         prompt = f"""
         Bạn là chuyên gia Luau / Roblox Scripting.
@@ -67,16 +83,29 @@ def fix_script():
         YÊU CẦU: Sửa lỗi và CHỈ TRẢ VỀ DUY NHẤT MÃ CODE LUA ĐÃ SỬA. NO MARKDOWN, NO CODEBLOCK.
         """
 
-        # Gọi Gemini SDK v2026 mới nhất
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
-        )
-        fixed_code = response.text.strip()
+        # Xử lý tạo nội dung qua Gemini
+        fixed_code = ""
+        if HAS_OLD_SDK:
+            try:
+                model = genai.GenerativeModel('gemini-1.5-flash')
+                response = model.generate_content(prompt)
+                fixed_code = response.text.strip()
+            except Exception:
+                model = genai.GenerativeModel('gemini-1.5-flash-latest')
+                response = model.generate_content(prompt)
+                fixed_code = response.text.strip()
+        elif HAS_NEW_SDK:
+            response = new_client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=prompt,
+            )
+            fixed_code = response.text.strip()
 
+        # Dọn sạch Markdown nếu AI trả về ```lua
         fixed_code = re.sub(r'^```(?:lua)?\n', '', fixed_code, flags=re.IGNORECASE)
         fixed_code = re.sub(r'\n```$', '', fixed_code).strip()
 
+        # Push code đã sửa lên GitHub
         g = Github(GITHUB_TOKEN)
         repo = g.get_repo(REPO_NAME)
         contents = repo.get_contents(file_path)
