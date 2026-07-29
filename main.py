@@ -8,22 +8,18 @@ from github import Github
 
 app = Flask(__name__)
 
-# Lấy các biến môi trường từ Render
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
-DISCORD_WEBHOOK_URL = os.environ.get("AUTOFIX_WEBHOOK_URL") # Webhook báo lỗi
+DISCORD_WEBHOOK_URL = os.environ.get("AUTOFIX_WEBHOOK_URL")
 REPO_NAME = "Nguyensama666/Tool"
 
 if GEMINI_KEY:
     genai.configure(api_key=GEMINI_KEY)
 
-# Hàm gửi Webhook Embed sang Discord khi sửa lỗi thành công
 def send_discord_autofix_webhook(file_path, error_log):
     if not DISCORD_WEBHOOK_URL:
         return
-    
     try:
-        # Lấy giờ Việt Nam (UTC+7)
         tz_vn = timezone(timedelta(hours=7))
         time_str = datetime.now(tz_vn).strftime("%d/%m/%Y %H:%M:%S (VN)")
 
@@ -33,7 +29,7 @@ def send_discord_autofix_webhook(file_path, error_log):
             "embeds": [{
                 "title": "🛠️ HỆ THỐNG ĐÃ TỰ ĐỘNG SỬA LỖI SCRIPT!",
                 "description": "✨ **Gemini API đã phát hiện lỗi từ Roblox và tự động Push bản sửa lên GitHub!**",
-                "color": 0x00FFFF, # Màu xanh ngọc
+                "color": 0x00FFFF,
                 "fields": [
                     {
                         "name": "📄 File Được Sửa",
@@ -46,13 +42,13 @@ def send_discord_autofix_webhook(file_path, error_log):
                         "inline": True
                     },
                     {
-                        "name": "⚠️ Nội Dung Lỗi Gặp Phải",
-                        "value": f"```lua\n{str(error_log)[:1000]}\n```", # Giới hạn 1000 ký tự
+                        "name": "⚠️ Nội Dung LỖI Gặp Phải",
+                        "value": f"```lua\n{str(error_log)[:1000]}\n```",
                         "inline": False
                     },
                     {
                         "name": "🚀 Trạng Thái",
-                        "value": "✅ **Đã Commit đè code mới lên GitHub thành công!**\n*(Roblox sẽ tự load bản mới ở lần Hop Server/Rejoin tiếp theo)*",
+                        "value": "✅ **Đã Commit đè code mới lên GitHub thành công!**",
                         "inline": False
                     }
                 ],
@@ -90,15 +86,19 @@ def fix_script():
         YÊU CẦU: Sửa lỗi (tương thích Blox Fruits update mới) và CHỈ TRẢ VỀ DUY NHẤT MÃ CODE LUA ĐÃ SỬA. NO MARKDOWN, NO CODEBLOCK.
         """
 
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        response = model.generate_content(prompt)
+        # Thử khởi tạo model linh hoạt tránh lỗi 404
+        try:
+            model = genai.GenerativeModel('gemini-2.5-flash')
+            response = model.generate_content(prompt)
+        except Exception:
+            model = genai.GenerativeModel('gemini-1.5-flash-latest')
+            response = model.generate_content(prompt)
+
         fixed_code = response.text.strip()
 
-        # Dọn sạch Markdown nếu AI trả về ```lua
         fixed_code = re.sub(r'^```(?:lua)?\n', '', fixed_code, flags=re.IGNORECASE)
         fixed_code = re.sub(r'\n```$', '', fixed_code).strip()
 
-        # Commit code đã sửa lên GitHub
         g = Github(GITHUB_TOKEN)
         repo = g.get_repo(REPO_NAME)
         contents = repo.get_contents(file_path)
@@ -110,7 +110,6 @@ def fix_script():
             sha=contents.sha
         )
 
-        # GỬI THÔNG BÁO VỀ DISCORD WEBHOOK
         send_discord_autofix_webhook(file_path, error_log)
 
         return jsonify({"status": "success", "message": f"Đã tự động sửa file {file_path} thành công!"}), 200
