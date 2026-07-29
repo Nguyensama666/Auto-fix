@@ -13,7 +13,6 @@ GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 DISCORD_WEBHOOK_URL = os.environ.get("AUTOFIX_WEBHOOK_URL")
 REPO_NAME = "Nguyensama666/Tool"
 
-# Khởi tạo SDK Google GenAI
 client = genai.Client(api_key=GEMINI_KEY) if GEMINI_KEY else None
 
 def send_discord_autofix_webhook(file_path, error_log):
@@ -43,6 +42,25 @@ def send_discord_autofix_webhook(file_path, error_log):
     except Exception as e:
         print(f"⚠️ Lỗi gửi Webhook Discord: {e}")
 
+# Hàm tự động lấy tên model sống chuẩn nhất từ Google API
+def get_working_model():
+    # Danh sách các tên model ưu tiên
+    preferred = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-flash"]
+    try:
+        # Lấy danh sách model thực tế mà API Key của bạn có quyền truy cập
+        available = [m.name.replace("models/", "") for m in client.models.list()]
+        for p in preferred:
+            if p in available:
+                return p
+        # Nếu không trúng danh sách ưu tiên, chọn model flash đầu tiên tìm thấy
+        for a in available:
+            if "flash" in a and "image" not in a and "tts" not in a:
+                return a
+        return available[0] if available else "gemini-2.5-flash"
+    except Exception as e:
+        print(f"⚠️ Lỗi lấy danh sách model: {e}")
+        return "gemini-2.5-flash"
+
 @app.route('/fix-script', methods=['POST'])
 def fix_script():
     try:
@@ -67,14 +85,17 @@ def fix_script():
         YÊU CẦU: Sửa lỗi (tương thích Blox Fruits update mới) và CHỈ TRẢ VỀ DUY NHẤT MÃ CODE LUA ĐÃ SỬA. NO MARKDOWN, NO CODEBLOCK.
         """
 
-        # Đổi sang model thế hệ mới Gemini 3 Flash
+        target_model = get_working_model()
+        print(f"🤖 Đang sử dụng Model: {target_model}")
+
         response = client.models.generate_content(
-            model='gemini-3-flash',
+            model=target_model,
             contents=prompt,
         )
+
         fixed_code = response.text.strip()
 
-        # Dọn dẹp ký tự markdown
+        # Dọn dẹp ký tự markdown ```lua ... ```
         fixed_code = re.sub(r'^```(?:lua)?\n', '', fixed_code, flags=re.IGNORECASE)
         fixed_code = re.sub(r'\n```$', '', fixed_code).strip()
 
@@ -94,7 +115,7 @@ def fix_script():
         return jsonify({"status": "success", "message": f"Đã tự động sửa file {file_path} thành công!"}), 200
 
     except Exception as e:
-        print(f"⚠️ Error: {str(e)}")
+        print(f"⚠️ Server Error: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/', methods=['GET'])
