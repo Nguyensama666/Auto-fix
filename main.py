@@ -7,8 +7,7 @@ app = Flask(__name__)
 
 # Lấy các mã Key bí mật từ biến môi trường (Environment Variables)
 GEMINI_KEY = os.environ.get("AQ.Ab8RN6LBn1c6ZZ3ocPkJNGMiFeLIDuTgtHEYTFX3X12y0-ut4w")
-GITHUB_TOKEN = os.environ.get("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
-")
+GITHUB_TOKEN = os.environ.get("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")
 REPO_NAME = "Nguyensama666/Tool" # Repository chứa script Roblox
 
 genai.configure(api_key=GEMINI_KEY)
